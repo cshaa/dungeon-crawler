@@ -1,6 +1,6 @@
-import { logNodes } from "./log";
-import { randomItem } from "./rand";
-import { range } from "./range";
+import { logNodes } from "./log.ts";
+import { randomItem } from "./rand.ts";
+import { range, skip, take } from "./utils.ts";
 
 export interface Mesh<N, E> {
   nodes: Set<Node<N, E>>;
@@ -39,6 +39,24 @@ export function newMesh<N, E>(nodes: Iterable<Node<N, E>>): Mesh<N, E> {
   return { nodes: new Set(nodes) };
 }
 
+export function connect<N, E>({
+  from,
+  to,
+  edgeData,
+}: {
+  from: Node<N, E>;
+  to: Node<N, E>;
+  edgeData: E;
+}) {
+  const edge = {
+    ...edgeData,
+    from,
+    to,
+  };
+  from.edges.push(edge);
+  to.edges.push(edge);
+}
+
 export function appendNode<N, E>({
   mesh,
   nodeToAppend,
@@ -52,35 +70,64 @@ export function appendNode<N, E>({
   edgeData: E;
   direction?: "from" | "to";
 }) {
-  direction ??= "from";
-  const edge = {
-    ...edgeData,
+  direction ??= "to";
+  connect({
+    edgeData,
     from: direction === "from" ? nodeToAppend : where,
     to: direction === "to" ? nodeToAppend : where,
-  };
-  nodeToAppend.edges.push(edge);
-  where.edges.push(edge);
+  });
   mesh.nodes.add(nodeToAppend);
+}
+
+export function* iterateNeighbourhood<N, E>(
+  node: Node<N, E>,
+): Iterable<Node<N, E>[]> {
+  const visited = new Set([node]);
+  let newlyFound: Node<N, E>[] = [node];
+
+  while (newlyFound.length > 0) {
+    const next = newlyFound
+      .map(({ edges }) => edges.map(({ from, to }) => [from, to]))
+      .flat(2);
+
+    newlyFound = [];
+
+    for (const n of next) {
+      if (!visited.has(n)) {
+        newlyFound.push(n);
+        visited.add(n);
+      }
+    }
+
+    yield [...newlyFound];
+  }
 }
 
 export function generateMesh<N, E>({
   nodeCount,
+  rootNode,
   genNode,
   genEdge,
   nodeWeight,
+  extraEdgeProbability,
+  extraEdgeMaxLength,
   extraEdgeWeight,
 }: {
   nodeCount: number;
+  rootNode?: Node<N, E>;
   genNode: (index: number) => N;
   genEdge: (from: Node<N, E>, to: Node<N, E>) => E;
   nodeWeight: (node: Node<N, E>) => number;
-  extraEdgeWeight: (to: Node<N, E>) => number;
+  extraEdgeProbability: (node: Node<N, E>) => number;
+  extraEdgeMaxLength: number;
+  extraEdgeWeight: (from: Node<N, E>, to: Node<N, E>, dist: number) => number;
 }): Mesh<N, E> {
-  const root = newNode<N, E>(genNode(0));
-  const mesh = newMesh([root]);
+  rootNode ??= newNode<N, E>(genNode(0));
+  const mesh = newMesh([rootNode]);
 
   for (const i of range(1, nodeCount)) {
-    const stem = randomItem([...mesh.nodes], nodeWeight);
+    const otherMeshNodes = [...mesh.nodes];
+    const stem = randomItem(otherMeshNodes, nodeWeight);
     const node = newNode<N, E>(genNode(i));
     const edgeData = genEdge(node, stem);
 
@@ -90,20 +137,26 @@ export function generateMesh<N, E>({
       nodeToAppend: node,
       where: stem,
     });
+
+    while (Math.random() < extraEdgeProbability(node)) {
+      const layers = [
+        ...skip(take(iterateNeighbourhood(node), extraEdgeMaxLength), 1),
+      ];
+      const weighted = layers.flatMap((l, i) =>
+        l.map((n): [Node<N, E>, number] => [
+          n,
+          extraEdgeWeight(node, n, i + 1),
+        ]),
+      );
+      if (weighted.length === 0) break;
+      const other = randomItem(weighted, ([node, weight]) => weight)[0];
+      connect({
+        from: other,
+        to: node,
+        edgeData: undefined,
+      });
+    }
   }
 
   return mesh;
 }
-
-type NodeData = { name: number };
-type EdgeData = {};
-
-const mesh = generateMesh<NodeData, EdgeData>({
-  nodeCount: 10,
-  genNode: (i) => ({ name: i }),
-  genEdge: () => ({}),
-  nodeWeight: ({ edges: { length } }) => [10, 5, 1][length - 1] ?? 0,
-  extraEdgeWeight: () => 0,
-});
-
-logNodes(mesh.nodes);

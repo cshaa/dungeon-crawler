@@ -1,5 +1,3 @@
-import { assertDef } from "./utils";
-
 export function randomUniform(from: number, to: number): number {
   return from + (to - from) * Math.random();
 }
