@@ -1,4 +1,3 @@
-import { logNodes } from "./log.ts";
 import { randomItem } from "./rand.ts";
 import { range, skip, take } from "./utils.ts";
 
@@ -85,7 +84,7 @@ export function* iterateNeighbourhood<N, E>(
   const visited = new Set([node]);
   let newlyFound: Node<N, E>[] = [node];
 
-  while (newlyFound.length > 0) {
+  while (true) {
     const next = newlyFound
       .map(({ edges }) => edges.map(({ from, to }) => [from, to]))
       .flat(2);
@@ -98,6 +97,8 @@ export function* iterateNeighbourhood<N, E>(
         visited.add(n);
       }
     }
+
+    if (newlyFound.length === 0) return;
 
     yield [...newlyFound];
   }

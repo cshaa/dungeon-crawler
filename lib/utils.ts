@@ -38,3 +38,16 @@ export function* skip<T>(iter: Iterable<T>, howMany: number) {
     yield x.value;
   }
 }
+
+export function last<T>(iter: Iterable<T>) {
+  const it = iter[Symbol.iterator]();
+  let last: T | undefined;
+
+  while (true) {
+    const x = it.next();
+    if (x.done) break;
+    last = x.value;
+  }
+
+  return last;
+}

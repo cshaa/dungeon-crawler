@@ -8,6 +8,8 @@ let game = startGame();
 
 game: while (true) {
   console.log(describeState(game));
+  console.log();
+
   for (const [i, action] of game.actions.entries()) {
     console.log(`${i + 1}) ${describeAction(action)}`);
   }

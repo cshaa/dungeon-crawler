@@ -3,11 +3,31 @@ import {
   type Edge,
   type Node,
   neighbouringNodes,
+  iterateNeighbourhood,
 } from "./mesh.ts";
+import { randomItem } from "./rand.ts";
 import { randomLocationName } from "./texts/locations.ts";
+import { last } from "./utils.ts";
+
+interface InventoryItemCommon {
+  name: string;
+  pickable: boolean;
+}
+
+export interface InventoryKeyItem extends InventoryItemCommon {
+  type: "key";
+  keyFor: InventoryLockItem;
+}
+
+export interface InventoryLockItem extends InventoryItemCommon {
+  type: "lock";
+}
+
+export type InventoryItem = InventoryKeyItem | InventoryLockItem;
 
 export interface LocationData {
   name: string;
+  items: InventoryItem[];
 }
 
 export interface PathData {}
@@ -17,6 +37,13 @@ export type LocationEdge = Edge<LocationData, PathData>;
 
 export interface GameContext {
   location: LocationNode;
+  items: InventoryItem[];
+}
+
+export interface GamePickAction {
+  type: "pick";
+  item: InventoryItem;
+  perform(): GameState;
 }
 
 export interface GameTravelAction {
@@ -26,29 +53,74 @@ export interface GameTravelAction {
   perform(): GameState;
 }
 
-export type GameAction = GameTravelAction;
+export interface GameApplyItemAction {
+  type: "apply-item";
+  item: InventoryItem;
+  to: InventoryItem;
+  perform(): GameState;
+}
+
+export type GameAction =
+  | GamePickAction
+  | GameTravelAction
+  | GameApplyItemAction;
 
 export interface GameState {
   context: GameContext;
   actions: GameAction[];
 }
 
-function createState(location: LocationNode): GameState {
-  return {
-    context: { location },
-    actions: neighbouringNodes(location).map(({ node, edge }) => ({
+function createState(ctx: GameContext): GameState {
+  const pickActions: GamePickAction[] = ctx.location.items
+    .filter(({ pickable }) => pickable)
+    .map((item) => ({
+      type: "pick",
+      item,
+      perform: () => {
+        ctx.location.items.splice(ctx.location.items.indexOf(item), 1);
+        return createState({
+          ...ctx,
+          items: [...ctx.items, item],
+        });
+      },
+    }));
+
+  const travelActions: GameTravelAction[] = neighbouringNodes(ctx.location).map(
+    ({ node, edge }) => ({
       type: "travel",
       to: node,
       via: edge,
-      perform: () => createState(node),
-    })),
+      perform: () => createState({ ...ctx, location: node }),
+    }),
+  );
+
+  const itemActions: GameApplyItemAction[] = ctx.items.flatMap(
+    (item): GameApplyItemAction[] => {
+      if (item.type === "key" && ctx.location.items.includes(item.keyFor)) {
+        return [
+          {
+            type: "apply-item",
+            item,
+            to: item.keyFor,
+            perform: () => generateWinState(),
+          },
+        ];
+      }
+      return [];
+    },
+  );
+
+  const actions = [...pickActions, ...travelActions, ...itemActions];
+  return {
+    context: { ...ctx },
+    actions,
   };
 }
 
-export function startGame(): GameState {
+function generateCave(): LocationNode {
   const mesh = generateMesh<LocationData, PathData>({
     nodeCount: 10,
-    genNode: () => ({ name: randomLocationName() }),
+    genNode: () => ({ name: randomLocationName(), items: [] }),
     genEdge: () => ({}),
     nodeWeight: ({ edges: { length } }) => [10, 5, 1][length - 1] ?? 0,
     extraEdgeMaxLength: 3,
@@ -60,5 +132,40 @@ export function startGame(): GameState {
 
   const location = [...mesh.nodes][0];
 
-  return createState(location);
+  const lock: InventoryLockItem = {
+    type: "lock",
+    name: "Exit Door",
+    pickable: false,
+  };
+  const key: InventoryKeyItem = {
+    type: "key",
+    name: "Almighty Key of Escapes",
+    pickable: true,
+    keyFor: lock,
+  };
+
+  const distances = [...iterateNeighbourhood(location)];
+
+  const midpoint = randomItem(distances[Math.floor(distances.length / 2)]);
+  midpoint.items.push(lock);
+
+  const furthestPoint = randomItem(last(distances)!);
+  furthestPoint.items.push(key);
+
+  return location;
+}
+
+function generateWinState(): GameState {
+  return {
+    context: {
+      items: [],
+      location: { name: "You Won The Game", edges: [], items: [] },
+    },
+    actions: [],
+  };
+}
+
+export function startGame(): GameState {
+  const location = generateCave();
+  return createState({ location, items: [] });
 }
