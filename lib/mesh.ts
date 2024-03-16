@@ -1,4 +1,6 @@
-import { omit } from "./utils";
+import { logNodes } from "./log";
+import { randomItem } from "./rand";
+import { range } from "./range";
 
 export interface Mesh<N, E> {
   nodes: Set<Node<N, E>>;
@@ -33,6 +35,10 @@ export function newNode<N, E>(nodeData: N): Node<N, E> {
   };
 }
 
+export function newMesh<N, E>(nodes: Iterable<Node<N, E>>): Mesh<N, E> {
+  return { nodes: new Set(nodes) };
+}
+
 export function appendNode<N, E>({
   mesh,
   nodeToAppend,
@@ -46,7 +52,7 @@ export function appendNode<N, E>({
   edgeData: E;
   direction?: "from" | "to";
 }) {
-  direction ??= "to";
+  direction ??= "from";
   const edge = {
     ...edgeData,
     from: direction === "from" ? nodeToAppend : where,
@@ -57,46 +63,47 @@ export function appendNode<N, E>({
   mesh.nodes.add(nodeToAppend);
 }
 
-export const prettyNodeData = <N, E>(node: Node<N, E>) =>
-  Bun.inspect(omit(node, ["edges"]))
-    .replaceAll("\n", " ")
-    .replaceAll(/\s+/g, " ");
+export function generateMesh<N, E>({
+  nodeCount,
+  genNode,
+  genEdge,
+  nodeWeight,
+  extraEdgeWeight,
+}: {
+  nodeCount: number;
+  genNode: (index: number) => N;
+  genEdge: (from: Node<N, E>, to: Node<N, E>) => E;
+  nodeWeight: (node: Node<N, E>) => number;
+  extraEdgeWeight: (to: Node<N, E>) => number;
+}): Mesh<N, E> {
+  const root = newNode<N, E>(genNode(0));
+  const mesh = newMesh([root]);
 
-export const prettyEdgeData = <N, E>(edge: Edge<N, E>) =>
-  Bun.inspect(omit(edge, ["from", "to"]))
-    .replaceAll("\n", " ")
-    .replaceAll(/\s+/g, " ");
+  for (const i of range(1, nodeCount)) {
+    const stem = randomItem([...mesh.nodes], nodeWeight);
+    const node = newNode<N, E>(genNode(i));
+    const edgeData = genEdge(node, stem);
 
-export function logNodes<N, E>(nodes: Iterable<Node<N, E>>) {
-  for (const node of nodes) {
-    console.log(prettyNodeData(node));
-    for (const edge of node.edges) {
-      const dir = edge.from === node;
-      const arrow = dir ? `->` : `<-`;
-      const other = dir ? edge.to : edge.from;
-      console.log(
-        `| ` + prettyEdgeData(edge) + ` ` + arrow + ` ` + prettyNodeData(other),
-      );
-    }
-    console.log();
+    appendNode({
+      mesh,
+      edgeData,
+      nodeToAppend: node,
+      where: stem,
+    });
   }
+
+  return mesh;
 }
 
-type NodeData = { name: string };
+type NodeData = { name: number };
 type EdgeData = {};
 
-const rootNode = newNode<NodeData, EdgeData>({ name: "root" });
-const tootNode = newNode<NodeData, EdgeData>({ name: "toot" });
-
-const mesh: Mesh<NodeData, EdgeData> = {
-  nodes: new Set([rootNode]),
-};
-
-appendNode({
-  mesh,
-  edgeData: {},
-  nodeToAppend: tootNode,
-  where: rootNode,
+const mesh = generateMesh<NodeData, EdgeData>({
+  nodeCount: 10,
+  genNode: (i) => ({ name: i }),
+  genEdge: () => ({}),
+  nodeWeight: ({ edges: { length } }) => [10, 5, 1][length - 1] ?? 0,
+  extraEdgeWeight: () => 0,
 });
 
 logNodes(mesh.nodes);
